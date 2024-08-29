@@ -30,8 +30,8 @@ from bpy.types import (
         )
 
 from . import ui, operators
-
 from . import mqtt_connection
+from . import driver_utils
 
 class MQTTSettingsProp(PropertyGroup):
     broker_host : StringProperty(
@@ -70,6 +70,57 @@ class MQTTInputProp(PropertyGroup):
             description="If a float value, limit to this maximum",
             default=1.0
             )
+    do_decay_float : BoolProperty(
+            name="Do Decay",
+            description="Decay the input value with animation. Must be convertable to float.",
+            default=False
+            )
+    decay_current_value : FloatProperty(
+            name="Current Value",
+            default=0.0
+            )
+    decay_hold_peak_frames : IntProperty(
+            name="Hold N Frames",
+            description="Hold the input value for n frames before decaying",
+            default=4
+            )
+    decay_curr_hold_peak_frames : IntProperty(
+            name="Counter for holding n remaining frames",
+            default=0
+            )
+    decay_rate : FloatProperty(
+           name="Decay Rate",
+           description="Decay per frame",
+           default=0.05
+           )
+
+
+def updateSceneVarsByFilters(scn):
+    do_update_drivers = False
+    for input_prop in scn.mqtt_inputs:
+        if input_prop.do_decay_float:
+            ## decay
+            if input_prop.decay_curr_hold_peak_frames > 0:
+                input_prop.decay_curr_hold_peak_frames -= 1
+            else:
+                if scn[input_prop.property_name] == 0.0:
+                    break
+                next_c_value = input_prop.decay_current_value - \
+                        input_prop.decay_rate
+                input_prop.decay_current_value = next_c_value
+                do_update_drivers = True
+                if next_c_value < 0.0:
+                    scn[input_prop.property_name] = 0.0
+                elif next_c_value < scn[input_prop.property_name]:
+                    scn[input_prop.property_name] = next_c_value
+    if do_update_drivers:
+        driver_utils.update_all_drivers()
+        scn.update_tag()
+
+
+@persistent
+def pre_frame_change_handler(scn):
+    updateSceneVarsByFilters(scn) 
 
 @persistent
 def post_file_load_handler(none_par):
@@ -91,12 +142,14 @@ classes = [
     operators.MQTTReconnectClient,
 ]
 
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.mqtt_settings = PointerProperty(type=MQTTSettingsProp)
     bpy.types.Scene.mqtt_inputs = CollectionProperty(type=MQTTInputProp)
     bpy.app.handlers.load_post.append(post_file_load_handler)
+    bpy.app.handlers.frame_change_pre.append(pre_frame_change_handler)
 
 
 def unregister():

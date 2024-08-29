@@ -31,6 +31,9 @@ class MQTTConnection:
             if prop.property_name == var_name:
                 print("[MQTT] update var:", var_name, " = ", value)
                 scn[var_name] = value
+                if prop.do_decay_float:
+                    prop.decay_current_value = value
+                    prop.decay_curr_hold_peak_frames = prop.decay_hold_peak_frames
                 do_update_drivers = True
         if do_update_drivers:
             driver_utils.update_all_drivers()

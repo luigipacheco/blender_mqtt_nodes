@@ -46,6 +46,11 @@ class MQTTPanel(Panel):
                 row.alert = True
             row.prop(input_prop, "property_name", text="")
             row.operator("mqtt.remove_input_property", text="", icon="CANCEL").property_index = idx
+            row = col.row()
+            row.prop(input_prop, "do_decay_float", text="Decay")
+            if input_prop.do_decay_float:
+                row.prop(input_prop, "decay_hold_peak_frames", text="hold frames")
+                row.prop(input_prop, "decay_rate", text="rate")
         col = box.column()
         col.operator("mqtt.add_input_property", text="ADD")
         
