@@ -6,6 +6,9 @@ import paho.mqtt.client as mqtt
 
 from . import driver_utils, protocol
 
+# Global variable for pending MQTT updates (similar to Foscap's pending_updates)
+pending_updates = []
+
 
 class MQTTConnection:
 
@@ -20,25 +23,26 @@ class MQTTConnection:
         print("[MQTT] connected.")
 
     def _on_message(client, userdata, msg):
-        var_name = str(msg.topic).split('/')[-1]
-        scn = bpy.context.scene
+        full_topic = str(msg.topic)
+        
+        # Split topic and filter out empty segments
+        topic_parts = [part for part in full_topic.split('/') if part]
+        
+        # Get the last non-empty segment as the variable name
+        if not topic_parts:
+            return
+        var_name = topic_parts[-1]
+        
+        # Filter out empty topics and the manifest topic
+        if not var_name or var_name == "manifest":
+            return
+        
         try:
             value = float(msg.payload)
         except:
             return
-        do_update_drivers = False
-        for prop in scn.mqtt_inputs:
-            if prop.property_name == var_name:
-                print("[MQTT] update var:", var_name, " = ", value)
-                scn[var_name] = value
-                if prop.do_decay_float:
-                    prop.decay_current_value = value
-                    prop.decay_curr_hold_peak_frames = prop.decay_hold_peak_frames
-                do_update_drivers = True
-        if do_update_drivers:
-            driver_utils.update_all_drivers()
-            scn.update_tag()
-
+        # Queue the update instead of processing directly (similar to Foscap pattern)
+        pending_updates.append((var_name, value))
 
     def _pub_manifest(self, client):
         manifest = protocol.get_manifest()
@@ -82,6 +86,9 @@ class MQTTConnection:
             self._keep_running = False
             self._thread.join()
             self._thread = None
+        # Clear pending updates when stopping
+        global pending_updates
+        pending_updates.clear()
 
 
 mqtt_connection = MQTTConnection()

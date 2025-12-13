@@ -33,6 +33,9 @@ from . import ui, operators
 from . import mqtt_connection
 from . import driver_utils
 
+# Import pending_updates from mqtt_connection
+from .mqtt_connection import pending_updates
+
 class MQTTSettingsProp(PropertyGroup):
     broker_host : StringProperty(
             name="Broker Host",
@@ -95,6 +98,30 @@ class MQTTInputProp(PropertyGroup):
            )
 
 
+def process_mqtt_updates():
+    """Process pending MQTT updates in the main thread (similar to Foscap's process_shape_key_updates)"""
+    scn = bpy.context.scene
+    do_update_drivers = False
+    
+    while pending_updates:
+        var_name, value = pending_updates.pop(0)
+        for prop in scn.mqtt_inputs:
+            if prop.property_name == var_name:
+                print("[MQTT] update var:", var_name, " = ", value)
+                scn[var_name] = value
+                if prop.do_decay_float:
+                    prop.decay_current_value = value
+                    prop.decay_curr_hold_peak_frames = prop.decay_hold_peak_frames
+                do_update_drivers = True
+    
+    if do_update_drivers:
+        driver_utils.update_all_drivers()
+        scn.update_tag()
+    
+    # Return interval for next timer call (similar to Foscap pattern)
+    return 0.01
+
+
 def updateSceneVarsByFilters(scn):
     do_update_drivers = False
     for input_prop in scn.mqtt_inputs:
@@ -131,6 +158,9 @@ def post_file_load_handler(none_par):
     # sanity check hostname
     if len(host) > 3:
         mqtt_connection.mqtt_connection.run(host, topic)
+        # Register the timer for processing updates if not already registered
+        if not bpy.app.timers.is_registered(process_mqtt_updates):
+            bpy.app.timers.register(process_mqtt_updates)
 
 classes = [
     MQTTSettingsProp,
@@ -150,10 +180,16 @@ def register():
     bpy.types.Scene.mqtt_inputs = CollectionProperty(type=MQTTInputProp)
     bpy.app.handlers.load_post.append(post_file_load_handler)
     bpy.app.handlers.frame_change_pre.append(pre_frame_change_handler)
+    # Register timer for processing MQTT updates (similar to Foscap pattern)
+    if not bpy.app.timers.is_registered(process_mqtt_updates):
+        bpy.app.timers.register(process_mqtt_updates)
 
 
 def unregister():
     mqtt_connection.mqtt_connection.stop()
+    # Unregister timer for processing MQTT updates
+    if bpy.app.timers.is_registered(process_mqtt_updates):
+        bpy.app.timers.unregister(process_mqtt_updates)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.mqtt_inputs

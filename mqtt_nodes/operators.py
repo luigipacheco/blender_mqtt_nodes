@@ -40,6 +40,8 @@ class MQTTReconnectClient(Operator):
             host = scn.mqtt_settings.broker_host
             topic = scn.mqtt_settings.topic_prefix
             mqtt_connection.mqtt_connection.run(host, topic)
+            # Timer registration is handled in __init__.py register() and post_file_load_handler
+            # It will be registered when the connection starts if not already registered
         except:
             return {'CANCELED'}
         return {'FINISHED'}
