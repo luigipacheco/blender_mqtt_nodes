@@ -16,6 +16,7 @@ class MQTTConnection:
         self._thread = None
         self._keep_running = False
         self._do_pub_manifest = False
+        self._client = None
 
     def _on_connect(client, userdata, flags, rc):
         topic_prefix = userdata
@@ -56,6 +57,7 @@ class MQTTConnection:
         client.on_connect = MQTTConnection._on_connect
         client.on_message = MQTTConnection._on_message
         client.connect(self._broker_host, 1883, 60)
+        self._client = client
         self._pub_manifest(client)
         while self._keep_running:
             client.loop(timeout=0.2)
@@ -86,6 +88,7 @@ class MQTTConnection:
             self._keep_running = False
             self._thread.join()
             self._thread = None
+        self._client = None
         # Clear pending updates when stopping
         global pending_updates
         pending_updates.clear()

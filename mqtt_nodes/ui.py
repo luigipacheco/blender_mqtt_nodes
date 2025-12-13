@@ -54,4 +54,25 @@ class MQTTPanel(Panel):
         col = box.column()
         col.operator("mqtt.add_input_property", text="ADD")
         
+        # Output properties
+        box = layout.box()
+        box.label(text="Output Properties")
+        col = box.column()
+        for idx, output_prop in enumerate(scn.mqtt_outputs):
+            row = col.row()
+            if not output_prop.data_path or not output_prop.topic:
+                row.alert = True
+            row.prop(output_prop, "data_path", text="Data Path")
+            row = col.row()
+            row.prop(output_prop, "topic", text="Topic")
+            row = col.row()
+            row.prop(output_prop, "publish_on_frame", text="Publish on Frame")
+            if not output_prop.publish_on_frame:
+                row = col.row()
+                row.prop(output_prop, "timer_interval", text="Timer Interval (s)")
+            row = col.row()
+            row.operator("mqtt.remove_output_property", text="", icon="CANCEL").property_index = idx
+        col = box.column()
+        col.operator("mqtt.add_output_property", text="ADD OUTPUT")
+        
 

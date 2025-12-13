@@ -13,6 +13,7 @@ bl_info = {
 
 
 import bpy
+import json
 
 from bpy.app.handlers import persistent
 
@@ -49,6 +50,9 @@ class MQTTSettingsProp(PropertyGroup):
             )
 
 def update_input_property(prop, context):
+    mqtt_connection.mqtt_connection.pub_manifest()
+
+def update_output_property(prop, context):
     mqtt_connection.mqtt_connection.pub_manifest()
 
 class MQTTInputProp(PropertyGroup):
@@ -98,6 +102,33 @@ class MQTTInputProp(PropertyGroup):
            )
 
 
+class MQTTOutputProp(PropertyGroup):
+    data_path : StringProperty(
+            name="Data Path",
+            description="Python data path to the property (e.g., 'bpy.data.objects[\"Cube\"].location[2]')",
+            default="",
+            update=update_output_property
+            )
+    topic : StringProperty(
+            name="Topic",
+            description="The topic postfix to publish the property to",
+            default="",
+            update=update_output_property
+            )
+    publish_on_frame : BoolProperty(
+            name="Publish on Frame",
+            description="Publish the property value on each frame change",
+            default=True
+            )
+    timer_interval : FloatProperty(
+            name="Timer Interval",
+            description="Interval in seconds to publish when not publishing on frame (0.01 = 100Hz)",
+            default=0.1,
+            min=0.01,
+            max=10.0
+            )
+
+
 def process_mqtt_updates():
     """Process pending MQTT updates in the main thread (similar to Foscap's process_shape_key_updates)"""
     scn = bpy.context.scene
@@ -145,9 +176,116 @@ def updateSceneVarsByFilters(scn):
         scn.update_tag()
 
 
+def publish_output_property_value(output_prop, client):
+    """Publish a single output property value to MQTT"""
+    if not output_prop.data_path or not output_prop.topic:
+        return False
+    
+    data_path = output_prop.data_path
+    
+    # Try to evaluate the data path and get the property value
+    try:
+        # Evaluate the data path safely (only allow access to bpy and standard types)
+        # This allows paths like: bpy.data.objects["Cube"].location[2]
+        value = eval(data_path, {"__builtins__": {}, "bpy": bpy})
+        
+        # Skip None values
+        if value is None:
+            return False
+        
+        # Skip empty dicts and empty objects
+        if isinstance(value, dict) and len(value) == 0:
+            return False
+        
+        # Convert to appropriate format
+        if isinstance(value, (list, tuple)):
+            # For vector properties, publish as JSON array
+            try:
+                payload = json.dumps([float(v) for v in value])
+            except (TypeError, ValueError):
+                # If conversion fails, skip this publish
+                return False
+        elif isinstance(value, (int, float)):
+            # For numeric values, publish as string
+            payload = str(value)
+        elif isinstance(value, bool):
+            # For boolean values, publish as string
+            payload = str(value)
+        elif isinstance(value, str):
+            # For string values, publish as-is
+            payload = value
+        else:
+            # For other types (dict, complex objects), skip publishing
+            # to avoid publishing empty dicts or unexpected data
+            return False
+        
+        # Publish to topic
+        full_topic = mqtt_connection.mqtt_connection._topic_prefix + output_prop.topic
+        client.publish(full_topic, payload, qos=0, retain=False)
+        return True
+        
+    except (AttributeError, KeyError, TypeError, ValueError, NameError, SyntaxError) as e:
+        # Property doesn't exist, can't be accessed, or invalid syntax
+        # Silently skip - this is expected for invalid data paths
+        return False
+
+
+def publish_output_properties(scn):
+    """Publish all output properties that have publish_on_frame enabled"""
+    client = mqtt_connection.mqtt_connection._client
+    if not client:
+        return
+    # Check if client is connected
+    try:
+        if not client.is_connected():
+            return
+    except:
+        return
+    
+    for output_prop in scn.mqtt_outputs:
+        if not output_prop.publish_on_frame:
+            continue
+        publish_output_property_value(output_prop, client)
+
+
+def publish_timer_output_properties():
+    """Timer function to publish output properties that use timer-based publishing"""
+    scn = bpy.context.scene
+    client = mqtt_connection.mqtt_connection._client
+    if not client:
+        return 0.1  # Default interval if not connected
+    # Check if client is connected
+    try:
+        if not client.is_connected():
+            return 0.1
+    except:
+        return 0.1
+    
+    # Find the minimum timer interval from all timer-based output properties
+    min_interval = 10.0  # Default to 10 seconds if no timer properties
+    
+    for output_prop in scn.mqtt_outputs:
+        if not output_prop.data_path or not output_prop.topic:
+            continue
+        if output_prop.publish_on_frame:
+            continue  # Skip frame-based publishing
+        
+        # Publish this property
+        publish_output_property_value(output_prop, client)
+        
+        # Track minimum interval
+        if output_prop.timer_interval < min_interval:
+            min_interval = output_prop.timer_interval
+    
+    # Return the minimum interval for next timer call
+    return min_interval if min_interval < 10.0 else 0.1
+
+
 @persistent
 def pre_frame_change_handler(scn):
-    updateSceneVarsByFilters(scn) 
+    updateSceneVarsByFilters(scn)
+    # Publish output properties on frame change
+    publish_output_properties(scn) 
 
 @persistent
 def post_file_load_handler(none_par):
@@ -161,14 +299,20 @@ def post_file_load_handler(none_par):
         # Register the timer for processing updates if not already registered
         if not bpy.app.timers.is_registered(process_mqtt_updates):
             bpy.app.timers.register(process_mqtt_updates)
+        # Register the timer for publishing output properties if not already registered
+        if not bpy.app.timers.is_registered(publish_timer_output_properties):
+            bpy.app.timers.register(publish_timer_output_properties)
 
 classes = [
     MQTTSettingsProp,
     MQTTInputProp,
+    MQTTOutputProp,
     ui.MQTTNodePanel,
     ui.MQTTPanel,
     operators.MQTTAddInputProperty,
     operators.MQTTRemoveInputProperty,
+    operators.MQTTAddOutputProperty,
+    operators.MQTTRemoveOutputProperty,
     operators.MQTTReconnectClient,
 ]
 
@@ -178,11 +322,15 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.mqtt_settings = PointerProperty(type=MQTTSettingsProp)
     bpy.types.Scene.mqtt_inputs = CollectionProperty(type=MQTTInputProp)
+    bpy.types.Scene.mqtt_outputs = CollectionProperty(type=MQTTOutputProp)
     bpy.app.handlers.load_post.append(post_file_load_handler)
     bpy.app.handlers.frame_change_pre.append(pre_frame_change_handler)
     # Register timer for processing MQTT updates (similar to Foscap pattern)
     if not bpy.app.timers.is_registered(process_mqtt_updates):
         bpy.app.timers.register(process_mqtt_updates)
+    # Register timer for publishing output properties
+    if not bpy.app.timers.is_registered(publish_timer_output_properties):
+        bpy.app.timers.register(publish_timer_output_properties)
 
 
 def unregister():
@@ -190,8 +338,12 @@ def unregister():
     # Unregister timer for processing MQTT updates
     if bpy.app.timers.is_registered(process_mqtt_updates):
         bpy.app.timers.unregister(process_mqtt_updates)
+    # Unregister timer for publishing output properties
+    if bpy.app.timers.is_registered(publish_timer_output_properties):
+        bpy.app.timers.unregister(publish_timer_output_properties)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.mqtt_inputs
+    del bpy.types.Scene.mqtt_outputs
     del bpy.types.Scene.mqtt_settings
 
