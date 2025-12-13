@@ -36,6 +36,12 @@ class MQTTPanel(Panel):
         col = box.column()
         col.prop(mqtt_settings, "broker_host")
         col.prop(mqtt_settings, "topic_prefix")
+        row = col.row()
+        row.prop(mqtt_settings, "mqtt_enabled", text="MQTT Enabled")
+        if mqtt_settings.mqtt_enabled:
+            row.label(text="", icon="PLAY")
+        else:
+            row.label(text="", icon="PAUSE")
         col.operator("mqtt.reconnect_client", text="Reconnect")
         # props
         box = layout.box()

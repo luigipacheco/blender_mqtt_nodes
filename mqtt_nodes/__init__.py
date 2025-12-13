@@ -48,6 +48,11 @@ class MQTTSettingsProp(PropertyGroup):
             description="Prefix for the topic before all the input topics",
             default="/bl_prop_input/"
             )
+    mqtt_enabled : BoolProperty(
+            name="MQTT Enabled",
+            description="Enable/disable all MQTT input and output updates",
+            default=True
+            )
 
 def update_input_property(prop, context):
     mqtt_connection.mqtt_connection.pub_manifest()
@@ -132,6 +137,10 @@ class MQTTOutputProp(PropertyGroup):
 def process_mqtt_updates():
     """Process pending MQTT updates in the main thread (similar to Foscap's process_shape_key_updates)"""
     scn = bpy.context.scene
+    # Skip processing if MQTT is paused
+    if not scn.mqtt_settings.mqtt_enabled:
+        return 0.01
+    
     do_update_drivers = False
     
     while pending_updates:
@@ -154,6 +163,10 @@ def process_mqtt_updates():
 
 
 def updateSceneVarsByFilters(scn):
+    # Skip decay updates if MQTT is paused
+    if not scn.mqtt_settings.mqtt_enabled:
+        return
+    
     do_update_drivers = False
     for input_prop in scn.mqtt_inputs:
         if input_prop.do_decay_float:
@@ -232,6 +245,10 @@ def publish_output_property_value(output_prop, client):
 
 def publish_output_properties(scn):
     """Publish all output properties that have publish_on_frame enabled"""
+    # Skip publishing if MQTT is paused
+    if not scn.mqtt_settings.mqtt_enabled:
+        return
+    
     client = mqtt_connection.mqtt_connection._client
     if not client:
         return
@@ -251,6 +268,10 @@ def publish_output_properties(scn):
 def publish_timer_output_properties():
     """Timer function to publish output properties that use timer-based publishing"""
     scn = bpy.context.scene
+    # Skip publishing if MQTT is paused
+    if not scn.mqtt_settings.mqtt_enabled:
+        return 0.1
+    
     client = mqtt_connection.mqtt_connection._client
     if not client:
         return 0.1  # Default interval if not connected
