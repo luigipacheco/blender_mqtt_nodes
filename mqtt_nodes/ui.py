@@ -81,4 +81,31 @@ class MQTTPanel(Panel):
         col = box.column()
         col.operator("mqtt.add_output_property", text="ADD OUTPUT")
         
+        # Attribute Output properties
+        box = layout.box()
+        box.label(text="Attribute Output Properties")
+        col = box.column()
+        for idx, attr_prop in enumerate(scn.mqtt_attribute_outputs):
+            row = col.row()
+            if not attr_prop.object or not attr_prop.attribute_name or not attr_prop.topic:
+                row.alert = True
+            row.prop(attr_prop, "object", text="Object")
+            row = col.row()
+            row.prop(attr_prop, "attribute_name", text="Attribute")
+            row = col.row()
+            row.prop(attr_prop, "stream_all_instances", text="Stream All Instances")
+            if not attr_prop.stream_all_instances:
+                row.prop(attr_prop, "attribute_index", text="Index")
+            row = col.row()
+            row.prop(attr_prop, "topic", text="Topic")
+            row = col.row()
+            row.prop(attr_prop, "publish_on_frame", text="Publish on Frame")
+            if not attr_prop.publish_on_frame:
+                row = col.row()
+                row.prop(attr_prop, "timer_interval", text="Timer Interval (s)")
+            row = col.row()
+            row.operator("mqtt.remove_attribute_output_property", text="", icon="CANCEL").property_index = idx
+        col = box.column()
+        col.operator("mqtt.add_attribute_output_property", text="ADD ATTRIBUTE OUTPUT")
+        
 

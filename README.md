@@ -6,6 +6,7 @@ A Blender addon that enables bidirectional communication between Blender and MQT
 
 - **MQTT Input Properties**: Receive MQTT messages and drive Blender properties/animations
 - **MQTT Output Properties**: Stream any Blender property to MQTT topics
+- **MQTT Attribute Output**: Stream geometry node attributes (per-vertex, per-instance data) to MQTT
 - **Real-time Updates**: Timer-based or frame-based publishing options
 - **Driver Integration**: Works seamlessly with Blender's driver system
 - **Decay Animation**: Optional decay effects for input values
@@ -106,6 +107,43 @@ Stream any Blender property to MQTT topics in real-time.
 - **Vectors** (location, rotation, etc.): Published as JSON array
 - **Strings**: Published as-is
 
+## MQTT Attribute Output Properties (Geometry Nodes)
+
+Stream geometry node attributes to MQTT topics. This is ideal for streaming per-vertex or per-instance data from geometry nodes modifiers.
+
+### Setup
+
+1. In the **MQTT** panel, under **Attribute Output Properties**, click **ADD ATTRIBUTE OUTPUT**
+2. Set **Object**: Select the object that has the geometry node attribute
+3. Set **Attribute**: The name of the geometry node attribute to stream (e.g., `position`, `velocity`, `color`)
+4. Choose streaming mode:
+   - **Stream All Instances**: Stream all attribute values as an array
+   - **Index**: Stream a single attribute element by index (set to -1 to stream all instances)
+5. Set **Topic**: The topic postfix to publish to (e.g., `positions`, `velocities`, `colors`)
+6. Choose publishing mode:
+   - **Publish on Frame**: Publishes when the frame changes (for animation)
+   - **Timer Interval**: Publishes at regular intervals (for real-time updates)
+
+### Attribute Types
+
+The addon supports both scalar and vector attributes:
+- **Scalar attributes** (float): Single numeric values per element
+- **Vector attributes** (3D): Three-component vectors per element (e.g., position, velocity, normal)
+
+### Data Format
+
+- **Single scalar value**: Published as string (e.g., `"1.5"`)
+- **Single vector value**: Published as JSON array (e.g., `[1.0, 2.0, 3.0]`)
+- **All instances (scalar)**: Published as JSON array of floats (e.g., `[1.0, 2.0, 3.0, 4.0]`)
+- **All instances (vector)**: Published as JSON array of 3D vectors (e.g., `[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]`)
+
+### Use Cases
+
+- Stream particle positions or velocities from geometry nodes
+- Export per-vertex data for external visualization
+- Monitor geometry node attribute values in real-time
+- Stream instance transforms or custom attributes
+
 ## Examples
 
 ### Example 1: Drive Object Position with MQTT
@@ -152,6 +190,30 @@ mosquitto_pub -h localhost -t /blender/cube_z -m "5.0"
 - Publish on Frame: Enabled
 
 **Result:** The current frame number is published to `/blender/frame` on each frame change.
+
+### Example 5: Stream Geometry Node Attribute (Single Value)
+
+**Attribute Output Setup:**
+- Object: `Cube` (with geometry nodes modifier)
+- Attribute: `velocity`
+- Stream All Instances: Disabled
+- Index: `0`
+- Topic: `velocity_0`
+- Publish on Frame: Disabled
+- Timer Interval: `0.1` (10Hz)
+
+**Result:** The velocity vector of the first element is published to `/blender/velocity_0` as `[x, y, z]` 10 times per second.
+
+### Example 6: Stream All Geometry Node Attribute Values
+
+**Attribute Output Setup:**
+- Object: `ParticleSystem` (with geometry nodes modifier)
+- Attribute: `position`
+- Stream All Instances: Enabled
+- Topic: `particle_positions`
+- Publish on Frame: Enabled
+
+**Result:** All particle positions are published to `/blender/particle_positions` as a JSON array of 3D vectors on each frame change.
 
 ## Troubleshooting
 

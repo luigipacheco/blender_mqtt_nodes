@@ -52,6 +52,30 @@ class MQTTRemoveOutputProperty(Operator):
         return {'FINISHED'}
 
 
+class MQTTAddAttributeOutputProperty(Operator):
+    """Adds an attribute output property to the scene"""
+    bl_idname = "mqtt.add_attribute_output_property"
+    bl_label = "MQTT Add Attribute Output Property"
+
+    def execute(self, context):
+        scn = context.scene
+        scn.mqtt_attribute_outputs.add()
+        return {'FINISHED'}
+
+
+class MQTTRemoveAttributeOutputProperty(Operator):
+    """Remove an attribute output property from the scene"""
+    bl_idname = "mqtt.remove_attribute_output_property"
+    bl_label = "MQTT Remove Attribute Output Property"
+
+    property_index : bpy.props.IntProperty()
+
+    def execute(self, context):
+        scn = context.scene
+        scn.mqtt_attribute_outputs.remove(int(self.property_index))
+        return {'FINISHED'}
+
+
 class MQTTReconnectClient(Operator):
     """Reconnect the MQTT Client"""
     bl_idname = "mqtt.reconnect_client"
