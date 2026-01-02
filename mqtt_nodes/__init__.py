@@ -312,7 +312,8 @@ def publish_attribute_output_value(attr_prop, client, context):
                             return False
                 elif has_value:
                     try:
-                        values.append(float(attr.data[i].value))
+                        # Wrap single values in array to match [[r,g,b],[r,g,b],...] format
+                        values.append([float(attr.data[i].value)])
                     except (AttributeError, ValueError):
                         return False
                 else:
@@ -320,7 +321,8 @@ def publish_attribute_output_value(attr_prop, client, context):
                     try:
                         val = attr.data[i]
                         if isinstance(val, (int, float)):
-                            values.append(float(val))
+                            # Wrap single values in array to match [[r,g,b],[r,g,b],...] format
+                            values.append([float(val)])
                         else:
                             return False
                     except:
@@ -346,7 +348,8 @@ def publish_attribute_output_value(attr_prop, client, context):
                         return False
             elif has_value:
                 try:
-                    payload = str(float(attr.data[idx].value))
+                    # Wrap single values in array to match [[r,g,b],[r,g,b],...] format
+                    payload = json.dumps([float(attr.data[idx].value)])
                 except (AttributeError, ValueError):
                     return False
             else:
@@ -354,7 +357,8 @@ def publish_attribute_output_value(attr_prop, client, context):
                 try:
                     val = attr.data[idx]
                     if isinstance(val, (int, float)):
-                        payload = str(float(val))
+                        # Wrap single values in array to match [[r,g,b],[r,g,b],...] format
+                        payload = json.dumps([float(val)])
                     else:
                         return False
                 except:
