@@ -250,33 +250,81 @@ def updateSceneVarsByFilters(scn):
 def publish_attribute_output_value(attr_prop, client, context):
     """Publish a geometry node attribute value to MQTT"""
     if not attr_prop.object or not attr_prop.attribute_name or not attr_prop.topic:
+        if not attr_prop.object:
+            print(f"[MQTT] Attribute output missing object for topic: {attr_prop.topic}")
+        elif not attr_prop.attribute_name:
+            print(f"[MQTT] Attribute output missing attribute_name for topic: {attr_prop.topic}")
+        elif not attr_prop.topic:
+            print(f"[MQTT] Attribute output missing topic for attribute: {attr_prop.attribute_name}")
         return False
     
     try:
         depsgraph = context.evaluated_depsgraph_get()
         obj_eval = depsgraph.objects.get(attr_prop.object.name)
-        if not obj_eval or not obj_eval.data or not hasattr(obj_eval.data, 'attributes'):
+        if not obj_eval:
+            print(f"[MQTT] Could not find evaluated object: {attr_prop.object.name}")
+            return False
+        if not obj_eval.data:
+            print(f"[MQTT] Object {attr_prop.object.name} has no data")
+            return False
+        if not hasattr(obj_eval.data, 'attributes'):
+            print(f"[MQTT] Object {attr_prop.object.name} data has no attributes")
             return False
         
         attr = obj_eval.data.attributes.get(attr_prop.attribute_name)
         if not attr:
+            print(f"[MQTT] Attribute '{attr_prop.attribute_name}' not found on object {attr_prop.object.name}")
             return False
         
-        # Determine if attribute has .value or .vector
-        has_value = hasattr(attr.data[0], 'value') if len(attr.data) > 0 else False
-        has_vector = hasattr(attr.data[0], 'vector') if len(attr.data) > 0 else False
+        # Check if attribute data is empty
+        if len(attr.data) == 0:
+            print(f"[MQTT] Attribute '{attr_prop.attribute_name}' has no data")
+            return False
+        
+        # Determine attribute data type from the attribute's data_type property
+        # This is more reliable than checking hasattr on the first element
+        if hasattr(attr, 'data_type'):
+            attr_data_type = attr.data_type
+            is_vector_type = attr_data_type in {'FLOAT_VECTOR', 'FLOAT_COLOR', 'BYTE_COLOR'}
+            is_float_type = attr_data_type == 'FLOAT'
+            is_int_type = attr_data_type == 'INT'
+            has_value = is_float_type or is_int_type
+            has_vector = is_vector_type
+        else:
+            # Fallback: check the first element if data_type is not available
+            has_value = hasattr(attr.data[0], 'value')
+            has_vector = hasattr(attr.data[0], 'vector')
         
         if attr_prop.stream_all_instances or attr_prop.attribute_index < 0:
             # Stream all instances
             values = []
             for i in range(len(attr.data)):
                 if has_vector:
-                    vec = attr.data[i].vector
-                    values.append([float(vec[0]), float(vec[1]), float(vec[2])])
+                    try:
+                        vec = attr.data[i].vector
+                        values.append([float(vec[0]), float(vec[1]), float(vec[2])])
+                    except (AttributeError, IndexError):
+                        # Try color if vector doesn't work
+                        try:
+                            color = attr.data[i].color
+                            values.append([float(color[0]), float(color[1]), float(color[2])])
+                        except (AttributeError, IndexError):
+                            return False
                 elif has_value:
-                    values.append(float(attr.data[i].value))
+                    try:
+                        values.append(float(attr.data[i].value))
+                    except (AttributeError, ValueError):
+                        return False
                 else:
-                    return False
+                    # Try to access the attribute directly if it's a simple type
+                    try:
+                        val = attr.data[i]
+                        if isinstance(val, (int, float)):
+                            values.append(float(val))
+                        else:
+                            return False
+                    except:
+                        return False
             
             payload = json.dumps(values)
         else:
@@ -286,25 +334,53 @@ def publish_attribute_output_value(attr_prop, client, context):
                 return False
             
             if has_vector:
-                vec = attr.data[idx].vector
-                payload = json.dumps([float(vec[0]), float(vec[1]), float(vec[2])])
+                try:
+                    vec = attr.data[idx].vector
+                    payload = json.dumps([float(vec[0]), float(vec[1]), float(vec[2])])
+                except (AttributeError, IndexError):
+                    # Try color if vector doesn't work
+                    try:
+                        color = attr.data[idx].color
+                        payload = json.dumps([float(color[0]), float(color[1]), float(color[2])])
+                    except (AttributeError, IndexError):
+                        return False
             elif has_value:
-                payload = str(float(attr.data[idx].value))
+                try:
+                    payload = str(float(attr.data[idx].value))
+                except (AttributeError, ValueError):
+                    return False
             else:
-                return False
+                # Try to access the attribute directly if it's a simple type
+                try:
+                    val = attr.data[idx]
+                    if isinstance(val, (int, float)):
+                        payload = str(float(val))
+                    else:
+                        return False
+                except:
+                    return False
         
         # Publish to topic
         full_topic = mqtt_connection.mqtt_connection._topic_prefix + attr_prop.topic
-        client.publish(full_topic, payload, qos=0, retain=False)
+        result = client.publish(full_topic, payload, qos=0, retain=False)
+        if result.rc == 0:
+            print(f"[MQTT] Published attribute '{attr_prop.attribute_name}' to topic '{full_topic}'")
+        else:
+            print(f"[MQTT] Failed to publish attribute '{attr_prop.attribute_name}' to topic '{full_topic}', rc={result.rc}")
         return True
         
     except (AttributeError, KeyError, TypeError, ValueError, IndexError) as e:
+        print(f"[MQTT] Error publishing attribute {attr_prop.attribute_name}: {e}")
         return False
 
 
 def publish_output_property_value(output_prop, client):
     """Publish a single output property value to MQTT"""
     if not output_prop.data_path or not output_prop.topic:
+        if not output_prop.data_path:
+            print(f"[MQTT] Output property missing data_path for topic: {output_prop.topic}")
+        elif not output_prop.topic:
+            print(f"[MQTT] Output property missing topic for data_path: {output_prop.data_path}")
         return False
     
     data_path = output_prop.data_path
@@ -317,10 +393,12 @@ def publish_output_property_value(output_prop, client):
         
         # Skip None values
         if value is None:
+            print(f"[MQTT] Data path '{data_path}' returned None, skipping publish to topic: {output_prop.topic}")
             return False
         
         # Skip empty dicts and empty objects
         if isinstance(value, dict) and len(value) == 0:
+            print(f"[MQTT] Data path '{data_path}' returned empty dict, skipping publish to topic: {output_prop.topic}")
             return False
         
         # Convert to appropriate format
@@ -328,8 +406,9 @@ def publish_output_property_value(output_prop, client):
             # For vector properties, publish as JSON array
             try:
                 payload = json.dumps([float(v) for v in value])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
                 # If conversion fails, skip this publish
+                print(f"[MQTT] Failed to convert list/tuple from '{data_path}' to float array: {e}")
                 return False
         elif isinstance(value, (int, float)):
             # For numeric values, publish as string
@@ -343,16 +422,21 @@ def publish_output_property_value(output_prop, client):
         else:
             # For other types (dict, complex objects), skip publishing
             # to avoid publishing empty dicts or unexpected data
+            print(f"[MQTT] Unsupported value type '{type(value).__name__}' from data path '{data_path}', skipping publish to topic: {output_prop.topic}")
             return False
         
         # Publish to topic
         full_topic = mqtt_connection.mqtt_connection._topic_prefix + output_prop.topic
-        client.publish(full_topic, payload, qos=0, retain=False)
+        result = client.publish(full_topic, payload, qos=0, retain=False)
+        if result.rc == 0:
+            print(f"[MQTT] Published data path '{data_path}' (value: {payload[:50]}{'...' if len(payload) > 50 else ''}) to topic '{full_topic}'")
+        else:
+            print(f"[MQTT] Failed to publish data path '{data_path}' to topic '{full_topic}', rc={result.rc}")
         return True
         
     except (AttributeError, KeyError, TypeError, ValueError, NameError, SyntaxError) as e:
         # Property doesn't exist, can't be accessed, or invalid syntax
-        # Silently skip - this is expected for invalid data paths
+        print(f"[MQTT] Error evaluating data path '{data_path}' for topic '{output_prop.topic}': {type(e).__name__}: {e}")
         return False
 
 
